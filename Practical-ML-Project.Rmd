@@ -1,0 +1,235 @@
+---
+title: "Coursera Practical ML Project"
+author: "Michael Garcia"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+---
+
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement -- a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+
+The training data for this project are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+The data for this project come from this source: <http://groupware.les.inf.puc-rio.br/har>. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraryimports, echo=TRUE}
+library(lattice)
+library(ggplot2)
+library(caret)
+library(kernlab)
+library(rattle)
+library(corrplot)
+library(methods)
+#library(torch)
+#torch_tensor(1)
+#library(tensorflow)
+#library(keras)
+set.seed(107)
+```
+
+
+
+
+## Classe Description
+
+We propose a dataset with 5 classes (sitting-down, standing-up, standing, walking, and sitting) collected on 8 hours of activities of 4 healthy subjects. We also established a baseline performance index.
+
+See citations for source of this description.
+
+## Data preprocessing
+
+Down
+
+```{r dataprocess, include=TRUE, echo=FALSE}
+datasources <- setRefClass("datasources",
+                       fields=list(trainurl="character",testurl="character"),
+                       methods = list(
+                       train_download = function()
+                         {
+                           trainURL <- trainurl
+                           
+                           traindestURL <- file.path(getwd(),paste("train.csv",".bz2",sep = ""))
+                           
+                           download.file(trainURL,destfile = traindestURL)
+                           
+                           train_data <- read.csv(traindestURL)
+                           return(train_data)
+                         },
+                       test_download = function()
+                       {
+                        testURL <- testurl 
+                        testdestURL <- file.path(getwd(),paste("test.csv",".bz2",sep = ""))
+                        download.file(testURL, destfile = testdestURL)
+                        test_data <- read.csv(testdestURL)
+                        return(test_data)
+                       }
+                       )
+                     )
+
+```
+
+
+```{r getdata, echo=FALSE}
+datasource <- datasources(
+                      trainurl="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+                      testurl="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+train_data <- datasource$train_download()
+test_data <- datasource$test_download()
+
+```
+
+
+## Cleaning
+
+
+```{r cleaning, echo=FALSE}
+
+ 
+dataprep <- function(training, dataselect="train_df"){
+    # create Train and Validation dataframes
+    # remove values whos frequency is very low compared to the samples using Caret nearZero value
+    # and remove na volumns
+  training <- training[,colMeans(is.na(training)) < .9] 
+  training <- training[,-c(1:7)]
+  nvz <- nearZeroVar(training)
+  training <- training[,-nvz]
+  dim(training)
+  part <- createDataPartition(y=training$classe, p=0.7, list=F)
+  train_df <- training[part,]
+  valid_df <- training[-part,]
+  sprintf("Number of training samples: %s", nrow(training))
+  if (dataselect == "train_df"){
+    return(train_df)
+  } else if (dataselect == "valid_df"){
+    return(valid_df)
+  }
+}
+
+train_df <- dataprep(train_data, "train_df")
+valid_df <- dataprep(train_data, "valid_df")
+
+```
+
+
+### Model Prep
+
+Created a class to simplify arguments for running more than one modeling technique
+
+```{r modelclass, echo=FALSE}
+
+
+models <- setRefClass("models",
+                       fields = list(input_data="data.frame", valid_df="data.frame", test_data="data.frame",model_method="character", tunelength="numeric"), 
+                       methods = list(
+            
+                          set_ctrl = function()
+                           {
+                             ctrl <- caret::trainControl(method = model_method,
+                               #repeats = 3,
+                               number = 3,
+                               #classProbs = TRUE,
+                               verboseIter = FALSE)
+                             return(ctrl)
+                            }
+                         ,
+                           train_model = function(ctrl)
+                           {
+                            res_model <- caret::train(
+                                    classe~.,
+                                    data = input_data,
+                                    method = "gbm",
+                                    tuneLength = tunelength,
+                                    trControl = ctrl,
+                                    verbose=FALSE
+                                    )
+                            return(res_model)
+                            
+                           },
+                        getPred = function(){
+                           ctrl <- set_ctrl()
+                           res_model <- train_model(ctrl=ctrl)
+                           pred <- stats::predict(res_model, valid_df)
+                           return(pred)
+                          },
+                        getConfusionmatrix = function(){
+                          pred <- getPred()
+                          cmx <- caret::confusionMatrix(pred, factor(valid_df$classe))
+                          return(cmx)
+                        },
+                        testPred = function(){
+                          ctrl <- set_ctrl()
+                          res_model <- train_model(ctrl=ctrl)
+                          pred <- predict(res_model, test_data)
+                          return(pred)
+                          
+                        },
+                        getPlotmodel = function(){
+                          ggplot(train_model(ctrl=set_ctrl()))
+                        }
+                         )
+                     )
+
+
+
+gbm_ml <- models(input_data = train_df, valid_df = valid_df, test_data=test_data ,model_method = "cv", tunelength=5)
+```
+
+
+
+
+### Gradien Boosting Cross Validation
+
+The gradient boosting model results in a high balanced accuracy and overall high accuracy. 
+
+
+```{r getprediction, echo=FALSE}
+gbm_ml$getConfusionmatrix()
+```
+
+
+### View Plot Results
+
+The plot of the gradient boosting model also displays the increase in accuracy as the number of validations increase per classe.
+
+```{r viewmodelplto, echo=FALSE}
+
+gbm_ml$getPlotmodel()
+```
+
+
+
+### Test Predictions
+
+```{r predictiontest, echo=FALSE, }
+gbm_ml$testPred()
+```
+
+
+
+
+### Notes:
+ML Library used is Caret:
+https://cran.r-project.org/web/packages/caret/vignettes/caret.html
+
+
+### Citation:
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http:/groupware.les.inf.puc-rio.br/har#wle_paper_section#ixzz4TjplRc5n
