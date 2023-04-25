@@ -57,7 +57,7 @@ See citations for source of this description.
 
 Down
 
-```{r dataprocess, include=TRUE, echo=FALSE}
+```{r dataprocess, include=TRUE, echo=TRUE}
 datasources <- setRefClass("datasources",
                        fields=list(trainurl="character",testurl="character"),
                        methods = list(
@@ -86,7 +86,7 @@ datasources <- setRefClass("datasources",
 ```
 
 
-```{r getdata, echo=FALSE}
+```{r getdata, echo=TRUE}
 datasource <- datasources(
                       trainurl="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
                       testurl="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
@@ -99,7 +99,7 @@ test_data <- datasource$test_download()
 ## Cleaning
 
 
-```{r cleaning, echo=FALSE}
+```{r cleaning, echo=TRUE}
 
  
 dataprep <- function(training, dataselect="train_df"){
@@ -132,7 +132,7 @@ valid_df <- dataprep(train_data, "valid_df")
 
 Created a class to simplify arguments for running more than one modeling technique
 
-```{r modelclass, echo=FALSE}
+```{r modelclass, echo=TRUE}
 
 
 models <- setRefClass("models",
@@ -196,10 +196,12 @@ gbm_ml <- models(input_data = train_df, valid_df = valid_df, test_data=test_data
 
 ### Gradien Boosting Cross Validation
 
+The cross validation step performs tests on several folds and produces results for the metrics measuring the overall performance.
+
 The gradient boosting model results in a high balanced accuracy and overall high accuracy. 
 
 
-```{r getprediction, echo=FALSE}
+```{r getprediction, echo=TRUE}
 gbm_ml$getConfusionmatrix()
 ```
 
@@ -208,7 +210,7 @@ gbm_ml$getConfusionmatrix()
 
 The plot of the gradient boosting model also displays the increase in accuracy as the number of validations increase per classe.
 
-```{r viewmodelplto, echo=FALSE}
+```{r viewmodelplto, echo=TRUE}
 
 gbm_ml$getPlotmodel()
 ```
@@ -217,7 +219,9 @@ gbm_ml$getPlotmodel()
 
 ### Test Predictions
 
-```{r predictiontest, echo=FALSE, }
+We can see here the predictions using the test dataset
+
+```{r predictiontest, echo=TRUE }
 gbm_ml$testPred()
 ```
 
