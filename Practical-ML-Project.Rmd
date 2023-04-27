@@ -6,7 +6,6 @@ output:
   html_document: default
 ---
 
-
 ## Background
 
 Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement -- a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
@@ -23,6 +22,7 @@ The test data are available here:
 
 The data for this project come from this source: <http://groupware.les.inf.puc-rio.br/har>. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
 
+Copyright 2023 Michael Garcia. GNU Affero General Public License v3.0
 
 
 ```{r setup, include=FALSE}
@@ -43,9 +43,6 @@ library(methods)
 #library(keras)
 set.seed(107)
 ```
-
-
-
 
 ## Classe Description
 
@@ -85,7 +82,6 @@ datasources <- setRefClass("datasources",
 
 ```
 
-
 ```{r getdata, echo=TRUE}
 datasource <- datasources(
                       trainurl="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
@@ -95,9 +91,7 @@ test_data <- datasource$test_download()
 
 ```
 
-
 ## Cleaning
-
 
 ```{r cleaning, echo=TRUE}
 
@@ -127,21 +121,41 @@ valid_df <- dataprep(train_data, "valid_df")
 
 ```
 
+### Model Building Process
 
-### Model Prep
+Created a class to simplify arguments for running more than one modeling technique.
 
-Created a class to simplify arguments for running more than one modeling technique
+For the two models that will be used, the class covers the arguments to configure how: \* The cross validation will be performed (e.g. K-Fold, Simple Bootstrap, etc) \* The number of resampling for tuning the performance of the cross validation \* Training the models using the TRAIN and VALIDIATION data sets. \* The train method inherits the control value for model tuning. \* Validation of the prediction and creating the Recall, Sensitivity, Accuracy, and F1-Score model performance metrics. \* Finally, running the prediction of the model using the TEST data set.
 
 ```{r modelclass, echo=TRUE}
 
+### This creates a reference class that can be utilized to get the model confusion matrix, training, predictions, and performance metrics
+### To simplify working with the results, the class methods create the results that are part of the object
 
 models <- setRefClass("models",
-                       fields = list(input_data="data.frame", valid_df="data.frame", test_data="data.frame",model_method="character", tunelength="numeric"), 
+                       fields = list(input_data="data.frame", valid_df="data.frame", test_data="data.frame",model_method="character", tunelength="numeric", model_type="character", ctrl="list", train_model_res="ANY", pred_res="ANY", confusion_matrix="ANY", test_res="ANY",plot_res="ANY"), 
                        methods = list(
-            
-                          set_ctrl = function()
+                         initialize = function(input_data,valid_df,test_data,model_method, tunelength, model_type) {
+                           .self$input_data <- input_data
+                           .self$valid_df <- valid_df
+                           .self$test_data <- test_data
+                           .self$model_method <- model_method
+                           .self$tunelength <- tunelength
+                           .self$model_type <- model_type
+                           .self$ctrl <- .self$set_ctrl()
+                           .self$train_model_res <- .self$train_model()
+                           .self$pred_res <- .self$setPred()
+                           .self$confusion_matrix <- .self$setConfusionmatrix()
+                           .self$test_res <- .self$settestPred()
+                           if (.self$model_type == "gbm"){
+                             .self$plot_res <- .self$setPlotmodel()
+                           } else if (.self$model_type != "gbm"){
+                             .self$plot_res <- as.character("No Plot Available")
+                             }
+                           },
+                         set_ctrl = function(.self)
                            {
-                             ctrl <- caret::trainControl(method = model_method,
+                             ctrl <- caret::trainControl(method = .self$model_method,
                                #repeats = 3,
                                number = 3,
                                #classProbs = TRUE,
@@ -149,91 +163,131 @@ models <- setRefClass("models",
                              return(ctrl)
                             }
                          ,
-                           train_model = function(ctrl)
+                           train_model = function(.self)
                            {
                             res_model <- caret::train(
                                     classe~.,
-                                    data = input_data,
-                                    method = "gbm",
-                                    tuneLength = tunelength,
-                                    trControl = ctrl,
+                                    data = .self$input_data,
+                                    method = .self$model_type,
+                                    tuneLength = .self$tunelength,
+                                    trControl = .self$ctrl,
                                     verbose=FALSE
                                     )
                             return(res_model)
                             
                            },
-                        getPred = function(){
-                           ctrl <- set_ctrl()
-                           res_model <- train_model(ctrl=ctrl)
-                           pred <- stats::predict(res_model, valid_df)
+                        setPred = function(.self){
+                           res_model <- .self$train_model_res
+                           pred <- stats::predict(res_model, .self$valid_df)
                            return(pred)
                           },
-                        getConfusionmatrix = function(){
-                          pred <- getPred()
-                          cmx <- caret::confusionMatrix(pred, factor(valid_df$classe))
+                        setConfusionmatrix = function(.self){
+                          cmx <- caret::confusionMatrix(.self$pred_res, factor(.self$valid_df$classe))
                           return(cmx)
                         },
-                        testPred = function(){
-                          ctrl <- set_ctrl()
-                          res_model <- train_model(ctrl=ctrl)
-                          pred <- predict(res_model, test_data)
+                        settestPred = function(){
+                          pred <- predict(.self$train_model_res, .self$test_data)
                           return(pred)
                           
                         },
-                        getPlotmodel = function(){
-                          ggplot(train_model(ctrl=set_ctrl()))
+                        setPlotmodel = function(){
+                          ggplot(.self$train_model_res)
                         }
                          )
                      )
 
-
-
-gbm_ml <- models(input_data = train_df, valid_df = valid_df, test_data=test_data ,model_method = "cv", tunelength=5)
 ```
 
+### Support Vector Machine
 
+This method was chosen to demonstrate the speed at which the model runs. The model completed faster than gradient boosting. This is advandtagous for high dimensionality and also being memory effective. However, as seen on the results, it is not optimal for this use case. Usually used for text classification as each fold will relate to points in hyper plane for each fold based on repeated text.
 
+#### Cross Validation
 
-### Gradien Boosting Cross Validation
+-   The model configuration is using a value of 5 for cross validation and simple CV bootstrap
+-   This results in Kappa Value is 0.736
 
-The cross validation step performs tests on several folds and produces results for the metrics measuring the overall performance.
+#### Performance
 
-The gradient boosting model results in a high balanced accuracy and overall high accuracy. 
+-   Accuracy is low at 0.7924
+-   Class A had the highest balanced accuracy at 92.06% but B through E had less than 86.9%
 
+Create an svm model object using the models class
 
-```{r getprediction, echo=TRUE}
-gbm_ml$getConfusionmatrix()
+```{r svmmodel,echo=TRUE,include=TRUE}
+svm_ml <- models$new(input_data = train_df, valid_df = valid_df, test_data=test_data ,model_method = "cv", tunelength=5, model_type="svmLinear")
 ```
 
+```{r svmConfustionMatrix, echo=TRUE, include=TRUE}
+svm_ml$confusion_matrix
+```
 
-### View Plot Results
+#### SVM Prediction Results
+
+The prediction using the 20 observations are: C A B C A E D D A A C A B A E E A B B B
+
+```{r svmPrediction, echo=TRUE, include=TRUE}
+svm_ml$test_res
+```
+
+### Gradient Boosting Cross Validation
+
+The cross validation step performs tests on several folds and produces results for the metrics measuring the overall performance. The model technique is that through each iteration, the model attempts to "correct" the loss of the previous iterations, therefore "learning" from the history of loss in its full cycle.
+
+The gradient boosting model results in a high balanced accuracy and overall high accuracy.
+
+
+#### Cross Validation
+
+-   The model configuration is using a value of 5 for cross validation and simple CV bootstrap
+-   This results in Kappa Value is 0.9959
+
+#### Performance
+
+-   Accuracy is low at 0.9968
+-   The Balanced Accuracy is no less than 99%
+
+
+#### Create the object from the models class that has the necessery outputs
+
+```{r GradientBoosting, echo=TRUE}
+gbm_ml <- models$new(input_data = train_df, valid_df = valid_df, test_data=test_data ,model_method = "cv", tunelength=5, model_type="gbm")
+```
+
+#### Confusion Matrix
+
+```{r ConfusioMatrix, echo=TRUE,include=TRUE}
+gbm_ml$confusion_matrix
+```
+
+#### View Plot Results
 
 The plot of the gradient boosting model also displays the increase in accuracy as the number of validations increase per classe.
 
 ```{r viewmodelplto, echo=TRUE}
-
-gbm_ml$getPlotmodel()
+gbm_ml$plot_res
 ```
 
-
-
-### Test Predictions
+#### Gradient Boost  Test Predictions
 
 We can see here the predictions using the test dataset
 
 ```{r predictiontest, echo=TRUE }
-gbm_ml$testPred()
+gbm_ml$test_res
 ```
 
 
+### Conclusion:
 
+The Gradient Boosting Model had the highest scores, and higher upper and lower confidence intervals at 95 %.
+SVM does complete its run given the same arguments for cross validation and sampling.
 
 ### Notes:
-ML Library used is Caret:
-https://cran.r-project.org/web/packages/caret/vignettes/caret.html
 
+ML Library used is Caret: <https://cran.r-project.org/web/packages/caret/vignettes/caret.html>
 
 ### Citation:
+
 Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
 
-Read more: http:/groupware.les.inf.puc-rio.br/har#wle_paper_section#ixzz4TjplRc5n
+Read more: [http:/groupware.les.inf.puc-rio.br/har#wle_paper_section#ixzz4TjplRc5n](http:/groupware.les.inf.puc-rio.br/har#wle_paper_section#ixzz4TjplRc5n){.uri}
